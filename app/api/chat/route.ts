@@ -8,6 +8,7 @@ import {
   initializeKnowledgeBase,
   findRelevantChunks,
   getAllChunkScores,
+  analyzeQueryTerms,
   isUsingLocalEmbeddings,
 } from '@/lib/knowledge-base';
 import type { ChatUIMessage, RetrievedSource } from '@/lib/types';
@@ -37,6 +38,9 @@ export async function POST(req: Request) {
     text: chunk.text,
   }));
 
+  // Analyze query terms against retrieved chunks
+  const queryTerms = analyzeQueryTerms(query, relevantChunks);
+
   // Build context string with source attribution
   const context = relevantChunks
     .map(
@@ -51,6 +55,7 @@ export async function POST(req: Request) {
       execute: ({ writer }) => {
         writer.write({ type: 'data-sources', data: sources });
         writer.write({ type: 'data-scores', data: allScores });
+        writer.write({ type: 'data-queryTerms', data: queryTerms });
         const partId = 'fallback-text';
         writer.write({ type: 'text-start', id: partId });
         writer.write({ type: 'text-delta', id: partId, delta: fallbackText });

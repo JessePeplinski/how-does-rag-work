@@ -1,8 +1,15 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useState, useEffect, useRef } from 'react';
-import type { ChatUIMessage, RetrievedSource, ChunkScoreData } from '@/lib/types';
+import { useState, useEffect, useRef, createContext, useContext } from 'react';
+import type { ChatUIMessage, RetrievedSource, ChunkScoreData, QueryTermData } from '@/lib/types';
+
+// Context for sharing hovered term state between query viz and source cards
+const HoveredTermContext = createContext<{
+  hoveredTerm: string | null;
+  setHoveredTerm: (term: string | null) => void;
+  queryTerms: QueryTermData[];
+}>({ hoveredTerm: null, setHoveredTerm: () => {}, queryTerms: [] });
 
 function renderTextWithCitations(text: string) {
   const parts = text.split(/(\[Source \d+\])/g);
@@ -17,8 +24,142 @@ function renderTextWithCitations(text: string) {
         </span>
       );
     }
-    return <span key={i}>{part}</span>;
+    return <InteractiveText key={i} text={part} />;
   });
+}
+
+/** Renders text where each word is hoverable, triggering highlights in the sidebar */
+function InteractiveText({ text, variant = 'assistant' }: { text: string; variant?: 'user' | 'assistant' }) {
+  const { hoveredTerm, setHoveredTerm, queryTerms } = useContext(HoveredTermContext);
+
+  const termSet = useRef(new Set<string>());
+  termSet.current = new Set(queryTerms.map((t) => t.normalized));
+
+  // Split preserving whitespace and punctuation as separate tokens
+  const tokens = text.split(/(\s+)/);
+
+  return (
+    <>
+      {tokens.map((token, i) => {
+        if (/^\s+$/.test(token)) {
+          return <span key={i}>{token}</span>;
+        }
+
+        const normalized = token.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (normalized.length <= 2) {
+          return <span key={i}>{token}</span>;
+        }
+
+        const isQueryTerm = Array.from(termSet.current).some(
+          (term) => normalized.startsWith(term) || term.startsWith(normalized),
+        );
+        const isHovered = hoveredTerm
+          ? normalized.startsWith(hoveredTerm) || hoveredTerm.startsWith(normalized)
+          : false;
+
+        const userHovered = 'bg-white/30 ring-1 ring-white/50';
+        const userQueryHint = 'underline decoration-white/40 decoration-wavy underline-offset-2';
+        const userIdle = 'hover:bg-white/15';
+
+        const assistantHovered = 'bg-blue-400/40 ring-1 ring-blue-400/60 dark:bg-blue-500/40 dark:ring-blue-400/50';
+        const assistantQueryHint = 'underline decoration-blue-400/60 decoration-wavy underline-offset-2 dark:decoration-blue-400/60';
+        const assistantIdle = 'hover:bg-blue-400/20 dark:hover:bg-blue-500/20';
+
+        const isUser = variant === 'user';
+
+        return (
+          <span
+            key={i}
+            onMouseEnter={() => setHoveredTerm(normalized)}
+            onMouseLeave={() => setHoveredTerm(null)}
+            className={`cursor-pointer rounded-sm transition-all duration-150 ${
+              isHovered
+                ? (isUser ? userHovered : assistantHovered)
+                : isQueryTerm
+                  ? (isUser ? userQueryHint : assistantQueryHint)
+                  : (isUser ? userIdle : assistantIdle)
+            }`}
+          >
+            {token}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function weightToColor(weight: number): string {
+  if (weight >= 0.7) return 'bg-blue-200 text-blue-900 dark:bg-blue-800 dark:text-blue-100';
+  if (weight >= 0.4) return 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200';
+  return 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400';
+}
+
+function QueryTermsViz({ terms, isNew }: { terms: QueryTermData[]; isNew: boolean }) {
+  const { hoveredTerm, setHoveredTerm } = useContext(HoveredTermContext);
+
+  if (terms.length === 0) return null;
+
+  return (
+    <div
+      className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900"
+      style={{
+        animation: isNew ? 'fadeIn 400ms ease-out forwards' : 'none',
+        opacity: isNew ? 0 : 1,
+      }}
+    >
+      <div className="mb-2 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
+        Query Terms
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {terms.map((term, i) => {
+          const isHovered = hoveredTerm === term.normalized;
+          const hasMatches = term.foundInSources.length > 0;
+          return (
+            <span
+              key={i}
+              onMouseEnter={() => setHoveredTerm(term.normalized)}
+              onMouseLeave={() => setHoveredTerm(null)}
+              className={`cursor-default rounded-md px-2 py-1 text-[11px] font-medium transition-all ${
+                isHovered
+                  ? 'scale-110 ring-2 ring-blue-500 shadow-md ' + weightToColor(term.weight)
+                  : weightToColor(term.weight)
+              } ${!hasMatches ? 'opacity-40' : ''}`}
+              style={{
+                animationDelay: isNew ? `${i * 60}ms` : '0ms',
+                animation: isNew ? 'fadeIn 300ms ease-out forwards' : 'none',
+                opacity: isNew ? 0 : undefined,
+              }}
+              title={`Weight: ${(term.weight * 100).toFixed(0)}% | Found in ${term.foundInSources.length} source(s)`}
+            >
+              {term.original}
+              {hasMatches && (
+                <span className="ml-1 text-[9px] opacity-60">
+                  {term.foundInSources.length > 0 && `×${term.foundInSources.length}`}
+                </span>
+              )}
+            </span>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex items-center gap-3 text-[9px] text-zinc-400 dark:text-zinc-500">
+        <div className="flex items-center gap-1">
+          <div className="h-2.5 w-4 rounded bg-blue-200 dark:bg-blue-800" />
+          <span>High weight</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="h-2.5 w-4 rounded bg-sky-100 dark:bg-sky-900/50" />
+          <span>Medium</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="h-2.5 w-4 rounded bg-zinc-100 dark:bg-zinc-800" />
+          <span>Low / stop word</span>
+        </div>
+      </div>
+      <p className="mt-1.5 text-[9px] italic text-zinc-400 dark:text-zinc-500">
+        Hover a term to highlight where it appears in retrieved chunks
+      </p>
+    </div>
+  );
 }
 
 function SimilarityChart({
@@ -96,6 +237,37 @@ function SimilarityChart({
   );
 }
 
+/** Highlight matching query terms in chunk text */
+function HighlightedChunkText({ text, maxLength }: { text: string; maxLength: number }) {
+  const { hoveredTerm } = useContext(HoveredTermContext);
+  const truncated = text.length > maxLength ? text.slice(0, maxLength) + '...' : text;
+
+  if (!hoveredTerm) {
+    return <>{truncated}</>;
+  }
+
+  // Split on word boundaries around the hovered term
+  const regex = new RegExp(`(\\b${hoveredTerm}\\w{0,3})`, 'gi');
+  const parts = truncated.split(regex);
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark
+            key={i}
+            className="rounded bg-blue-200 px-0.5 text-blue-900 dark:bg-blue-700 dark:text-blue-100"
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 function SourceCard({
   source,
   index,
@@ -109,6 +281,11 @@ function SourceCard({
 }) {
   const [visible, setVisible] = useState(false);
   const [flying, setFlying] = useState(false);
+  const { hoveredTerm } = useContext(HoveredTermContext);
+
+  const isHighlighted = hoveredTerm
+    ? new RegExp(`\\b${hoveredTerm}`, 'i').test(source.text)
+    : false;
 
   useEffect(() => {
     const showTimer = setTimeout(() => setVisible(true), delay);
@@ -121,9 +298,13 @@ function SourceCard({
 
   return (
     <div
-      className={`rounded-lg border border-zinc-200 bg-white p-3 shadow-sm transition-all dark:border-zinc-700 dark:bg-zinc-900 ${
+      className={`rounded-lg border bg-white p-3 shadow-sm transition-all dark:bg-zinc-900 ${
         visible ? 'translate-x-0 opacity-100' : '-translate-x-8 opacity-0'
-      } ${flying ? 'ring-2 ring-blue-400/50 dark:ring-blue-500/50' : ''}`}
+      } ${flying ? 'ring-2 ring-blue-400/50 dark:ring-blue-500/50' : ''} ${
+        isHighlighted
+          ? 'border-blue-400 ring-1 ring-blue-300/50 dark:border-blue-500 dark:ring-blue-500/30'
+          : 'border-zinc-200 dark:border-zinc-700'
+      }`}
       style={{
         transitionDuration: '500ms',
         transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
@@ -154,7 +335,7 @@ function SourceCard({
         {source.sourceFile}
       </div>
       <p className="mt-1.5 line-clamp-4 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
-        {source.text}
+        <HighlightedChunkText text={source.text} maxLength={400} />
       </p>
       {flying && (
         <div className="mt-2 flex items-center gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-400">
@@ -171,10 +352,12 @@ function SourceCard({
 function RetrievalPanel({
   sources,
   scores,
+  queryTerms,
   isNew,
 }: {
   sources: RetrievedSource[];
   scores: ChunkScoreData[];
+  queryTerms: QueryTermData[];
   isNew: boolean;
 }) {
   if (sources.length === 0) {
@@ -197,37 +380,53 @@ function RetrievalPanel({
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      {/* Step 1: Similarity landscape */}
+      {/* Query term analysis */}
+      {queryTerms.length > 0 && (
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5 px-1">
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-100 text-[9px] font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+              1
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Analyze query terms
+            </span>
+          </div>
+          <QueryTermsViz terms={queryTerms} isNew={isNew} />
+        </div>
+      )}
+
+      {/* Step 2: Similarity landscape */}
       {scores.length > 0 && (
         <div
           style={{
             animation: isNew ? 'fadeIn 400ms ease-out forwards' : 'none',
+            animationDelay: isNew ? '300ms' : '0ms',
             opacity: isNew ? 0 : 1,
           }}
         >
           <div className="mb-1.5 flex items-center gap-1.5 px-1">
             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-purple-100 text-[9px] font-bold text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
-              1
+              2
             </span>
             <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Compare query against all chunks
+              Compare against all chunks
             </span>
           </div>
           <SimilarityChart scores={scores} isNew={isNew} />
         </div>
       )}
 
-      {/* Step 2: Retrieved sources */}
+      {/* Step 3: Retrieved sources */}
       <div
         style={{
           animation: isNew ? 'fadeIn 400ms ease-out forwards' : 'none',
-          animationDelay: isNew ? '400ms' : '0ms',
+          animationDelay: isNew ? '600ms' : '0ms',
           opacity: isNew ? 0 : 1,
         }}
       >
         <div className="mb-1.5 flex items-center gap-1.5 px-1">
           <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-100 text-[9px] font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-            2
+            3
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Top {sources.length} chunks retrieved
@@ -239,24 +438,24 @@ function RetrievalPanel({
               key={`${source.sourceFile}-${source.similarity}-${i}`}
               source={source}
               index={i}
-              delay={isNew ? 500 + i * 200 : 0}
+              delay={isNew ? 700 + i * 200 : 0}
               injected={!isNew}
             />
           ))}
         </div>
       </div>
 
-      {/* Step 3: Injection note */}
+      {/* Step 4: Injection note */}
       <div
         style={{
           animation: isNew ? 'fadeIn 500ms ease-out forwards' : 'none',
-          animationDelay: isNew ? `${500 + sources.length * 200 + 600}ms` : '0ms',
+          animationDelay: isNew ? `${700 + sources.length * 200 + 600}ms` : '0ms',
           opacity: isNew ? 0 : 1,
         }}
       >
         <div className="mb-1.5 flex items-center gap-1.5 px-1">
           <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-100 text-[9px] font-bold text-green-700 dark:bg-green-900/50 dark:text-green-300">
-            3
+            4
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Augment &amp; Generate
@@ -277,13 +476,15 @@ export default function Chat() {
   const { messages, sendMessage, status } = useChat<ChatUIMessage>();
   const [activeSources, setActiveSources] = useState<RetrievedSource[]>([]);
   const [activeScores, setActiveScores] = useState<ChunkScoreData[]>([]);
+  const [activeQueryTerms, setActiveQueryTerms] = useState<QueryTermData[]>([]);
+  const [hoveredTerm, setHoveredTerm] = useState<string | null>(null);
   const [isNewRetrieval, setIsNewRetrieval] = useState(false);
   const prevMessageCountRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
-  // Track the latest sources and scores from assistant messages
+  // Track the latest sources, scores, and query terms from assistant messages
   useEffect(() => {
     const assistantMessages = messages.filter((m) => m.role === 'assistant');
     if (assistantMessages.length === 0) return;
@@ -295,11 +496,15 @@ export default function Chat() {
     const scores = latest.parts
       .filter((p): p is { type: 'data-scores'; data: ChunkScoreData[] } => p.type === 'data-scores')
       .flatMap((p) => p.data);
+    const queryTerms = latest.parts
+      .filter((p): p is { type: 'data-queryTerms'; data: QueryTermData[] } => p.type === 'data-queryTerms')
+      .flatMap((p) => p.data);
 
     if (sources.length > 0) {
       const isNew = messages.length !== prevMessageCountRef.current;
       setActiveSources(sources);
       setActiveScores(scores);
+      setActiveQueryTerms(queryTerms);
       setIsNewRetrieval(isNew);
       prevMessageCountRef.current = messages.length;
     }
@@ -311,148 +516,150 @@ export default function Chat() {
   }, [messages, isLoading]);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <header className="border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-            RAG Demo
-          </h1>
-          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-            Prototype
-          </span>
-        </div>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          A rapid prototype demonstrating Retrieval-Augmented Generation. Documents in{' '}
-          <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs dark:bg-zinc-800">docs/</code>{' '}
-          are chunked, embedded, and retrieved via cosine similarity to ground LLM responses.
-          Runs fully locally without an API key (TF-IDF fallback).
-        </p>
-      </header>
-
-      {/* Main content: side panel + chat */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left: Retrieval Pipeline Panel */}
-        <aside className="hidden w-80 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50/50 dark:border-zinc-800 dark:bg-zinc-950/50 lg:block">
-          <div className="sticky top-0 z-10 border-b border-zinc-200 bg-zinc-50/80 px-4 py-2.5 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
-            <div className="flex items-center gap-2">
-              <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-              </svg>
-              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-                Retrieval Pipeline
-              </span>
-            </div>
+    <HoveredTermContext.Provider value={{ hoveredTerm, setHoveredTerm, queryTerms: activeQueryTerms }}>
+      <div className="flex h-full flex-col">
+        {/* Header */}
+        <header className="border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+              RAG Demo
+            </h1>
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+              Prototype
+            </span>
           </div>
-          <RetrievalPanel sources={activeSources} scores={activeScores} isNew={isNewRetrieval} />
-        </aside>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            A rapid prototype demonstrating Retrieval-Augmented Generation. Documents in{' '}
+            <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs dark:bg-zinc-800">docs/</code>{' '}
+            are chunked, embedded, and retrieved via cosine similarity to ground LLM responses.
+            Runs fully locally without an API key (TF-IDF fallback).
+          </p>
+        </header>
 
-        {/* Right: Chat */}
-        <div className="flex flex-1 flex-col">
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-6">
-            <div className="mx-auto max-w-2xl space-y-4">
-              {messages.length === 0 && (
-                <div className="py-12 text-center">
-                  <p className="text-lg font-medium text-zinc-400 dark:text-zinc-500">
-                    Try asking a question like:
-                  </p>
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    {[
-                      'What is RAG and how does it work?',
-                      'How does cosine similarity work?',
-                      'What is chain-of-thought prompting?',
-                      'Explain the ReAct agent pattern',
-                    ].map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        type="button"
-                        onClick={() => {
-                          setInput(suggestion);
-                        }}
-                        className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+        {/* Main content: side panel + chat */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left: Retrieval Pipeline Panel */}
+          <aside className="hidden w-80 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50/50 dark:border-zinc-800 dark:bg-zinc-950/50 lg:block">
+            <div className="sticky top-0 z-10 border-b border-zinc-200 bg-zinc-50/80 px-4 py-2.5 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                </svg>
+                <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                  Retrieval Pipeline
+                </span>
+              </div>
+            </div>
+            <RetrievalPanel sources={activeSources} scores={activeScores} queryTerms={activeQueryTerms} isNew={isNewRetrieval} />
+          </aside>
 
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                      message.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
-                    }`}
-                  >
-                    {message.parts.map((part, i) => {
-                      if (part.type === 'text') {
-                        if (message.role === 'user') {
-                          return <span key={i}>{part.text}</span>;
-                        }
-                        return (
-                          <div key={i} className="whitespace-pre-wrap leading-relaxed">
-                            {renderTextWithCitations(part.text)}
-                          </div>
-                        );
-                      }
-                      return null;
-                    })}
-                  </div>
-                </div>
-              ))}
-
-              {isLoading && messages[messages.length - 1]?.role === 'user' && (
-                <div className="flex justify-start">
-                  <div className="rounded-2xl bg-zinc-100 px-4 py-3 dark:bg-zinc-800">
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.3s]" />
-                      <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.15s]" />
-                      <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400" />
+          {/* Right: Chat */}
+          <div className="flex flex-1 flex-col">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              <div className="mx-auto max-w-2xl space-y-4">
+                {messages.length === 0 && (
+                  <div className="py-12 text-center">
+                    <p className="text-lg font-medium text-zinc-400 dark:text-zinc-500">
+                      Try asking a question like:
+                    </p>
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      {[
+                        'What is RAG and how does it work?',
+                        'How does cosine similarity work?',
+                        'What is chain-of-thought prompting?',
+                        'Explain the ReAct agent pattern',
+                      ].map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => {
+                            setInput(suggestion);
+                          }}
+                          className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
+                )}
 
-          {/* Input */}
-          <div className="border-t border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!input.trim() || isLoading) return;
-                const text = input;
-                setInput('');
-                sendMessage({ text });
-              }}
-              className="mx-auto flex max-w-2xl gap-3"
-            >
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask about RAG, vector databases, prompt engineering..."
-                className="flex-1 rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 placeholder-zinc-400 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400"
-                disabled={isLoading}
-              />
-              <button
-                type="submit"
-                disabled={isLoading || !input.trim()}
-                className="rounded-xl bg-blue-600 px-5 py-2.5 font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600"
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                        message.role === 'user'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
+                      }`}
+                    >
+                      {message.parts.map((part, i) => {
+                        if (part.type === 'text') {
+                          if (message.role === 'user') {
+                            return <span key={i}><InteractiveText text={part.text} variant="user" /></span>;
+                          }
+                          return (
+                            <div key={i} className="whitespace-pre-wrap leading-relaxed">
+                              {renderTextWithCitations(part.text)}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                {isLoading && messages[messages.length - 1]?.role === 'user' && (
+                  <div className="flex justify-start">
+                    <div className="rounded-2xl bg-zinc-100 px-4 py-3 dark:bg-zinc-800">
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.3s]" />
+                        <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.15s]" />
+                        <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+
+            {/* Input */}
+            <div className="border-t border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-950">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!input.trim() || isLoading) return;
+                  const text = input;
+                  setInput('');
+                  sendMessage({ text });
+                }}
+                className="mx-auto flex max-w-2xl gap-3"
               >
-                Send
-              </button>
-            </form>
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Ask about RAG, vector databases, prompt engineering..."
+                  className="flex-1 rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 placeholder-zinc-400 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400"
+                  disabled={isLoading}
+                />
+                <button
+                  type="submit"
+                  disabled={isLoading || !input.trim()}
+                  className="rounded-xl bg-blue-600 px-5 py-2.5 font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600"
+                >
+                  Send
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </HoveredTermContext.Provider>
   );
 }

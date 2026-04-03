@@ -215,3 +215,69 @@ export async function getAllChunkScores(
 
   return scored;
 }
+
+export interface QueryTermInfo {
+  original: string;
+  normalized: string;
+  weight: number;
+  foundInSources: number[];
+}
+
+/**
+ * Analyze which query terms appear in which source chunks and how important they are.
+ * Works in both TF-IDF and embedding mode (in embedding mode, uses word overlap heuristic).
+ */
+export function analyzeQueryTerms(
+  query: string,
+  topChunks: { text: string }[],
+): QueryTermInfo[] {
+  // Split the query preserving original words while also getting normalized forms
+  const rawWords = query.split(/\s+/).filter((w) => w.length > 0);
+  const seen = new Set<string>();
+  const results: QueryTermInfo[] = [];
+
+  for (const word of rawWords) {
+    const normalized = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalized.length <= 2 || seen.has(normalized)) continue;
+    seen.add(normalized);
+
+    // Compute importance weight
+    let weight = 0.5; // default
+    if (usingLocalEmbeddings && vocabulary.length > 0) {
+      const vocabIdx = vocabulary.indexOf(normalized);
+      if (vocabIdx !== -1 && idf[vocabIdx] !== undefined) {
+        const maxIdf = Math.max(...idf);
+        weight = maxIdf > 0 ? idf[vocabIdx] / maxIdf : 0.5;
+      }
+    } else {
+      // For embedding mode: use a simple heuristic based on word rarity
+      // Common words get lower weight
+      const commonWords = new Set([
+        'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had',
+        'her', 'was', 'one', 'our', 'out', 'has', 'have', 'been', 'some',
+        'them', 'than', 'its', 'over', 'such', 'that', 'this', 'with', 'will',
+        'each', 'from', 'they', 'does', 'how', 'what', 'when', 'where', 'which',
+        'who', 'why', 'use', 'used', 'using',
+      ]);
+      weight = commonWords.has(normalized) ? 0.15 : 0.7;
+    }
+
+    // Check which top chunks contain this term
+    const foundInSources: number[] = [];
+    const termRegex = new RegExp(`\\b${normalized}`, 'i');
+    for (let i = 0; i < topChunks.length; i++) {
+      if (termRegex.test(topChunks[i].text)) {
+        foundInSources.push(i);
+      }
+    }
+
+    // Boost weight if the term appears in sources
+    if (foundInSources.length > 0) {
+      weight = Math.min(weight * 1.3, 1.0);
+    }
+
+    results.push({ original: word, normalized, weight, foundInSources });
+  }
+
+  return results;
+}
