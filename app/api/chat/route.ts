@@ -1,6 +1,5 @@
 import {
   streamText,
-  UIMessage,
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -10,9 +9,10 @@ import {
   findRelevantChunks,
   isUsingLocalEmbeddings,
 } from '@/lib/knowledge-base';
+import type { ChatUIMessage, RetrievedSource } from '@/lib/types';
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const { messages }: { messages: ChatUIMessage[] } = await req.json();
 
   await initializeKnowledgeBase();
 
@@ -25,6 +25,14 @@ export async function POST(req: Request) {
   // RAG: retrieve relevant chunks
   const relevantChunks = await findRelevantChunks(query, 3);
 
+  // Prepare sources data for the client
+  const sources: RetrievedSource[] = relevantChunks.map((chunk) => ({
+    title: chunk.metadata.title,
+    sourceFile: chunk.metadata.sourceFile,
+    similarity: chunk.similarity,
+    text: chunk.text,
+  }));
+
   // Build context string with source attribution
   const context = relevantChunks
     .map(
@@ -34,10 +42,10 @@ export async function POST(req: Request) {
     .join('\n\n---\n\n');
 
   if (isUsingLocalEmbeddings()) {
-    // Fallback: no API key, return a formatted response via the UI message stream protocol
-    const fallbackText = buildFallbackResponse(query, relevantChunks);
-    const stream = createUIMessageStream({
+    const fallbackText = buildFallbackResponse();
+    const stream = createUIMessageStream<ChatUIMessage>({
       execute: ({ writer }) => {
+        writer.write({ type: 'data-sources', data: sources });
         const partId = 'fallback-text';
         writer.write({ type: 'text-start', id: partId });
         writer.write({ type: 'text-delta', id: partId, delta: fallbackText });
@@ -47,43 +55,29 @@ export async function POST(req: Request) {
     return createUIMessageStreamResponse({ stream });
   }
 
-  const result = streamText({
-    model: 'anthropic/claude-sonnet-4.6',
-    system: `You are a helpful AI assistant with access to a knowledge base about AI/ML topics.
+  const stream = createUIMessageStream<ChatUIMessage>({
+    execute: async ({ writer }) => {
+      // Send retrieved sources as a data part first
+      writer.write({ type: 'data-sources', data: sources });
+
+      const result = streamText({
+        model: 'anthropic/claude-sonnet-4.6',
+        system: `You are a helpful AI assistant with access to a knowledge base about AI/ML topics.
 Answer questions based on the provided context. When you use information from the context, cite the source using [Source N] notation.
 If the context doesn't contain relevant information, say so honestly and answer based on your general knowledge, noting that the answer is not from the knowledge base.
 
 Context from knowledge base:
 ${context}`,
-    messages: await convertToModelMessages(messages),
+        messages: await convertToModelMessages(messages),
+      });
+
+      writer.merge(result.toUIMessageStream());
+    },
   });
 
-  return result.toUIMessageStreamResponse();
+  return createUIMessageStreamResponse({ stream });
 }
 
-function buildFallbackResponse(
-  query: string,
-  chunks: { text: string; similarity: number; metadata: { title: string; sourceFile: string } }[],
-): string {
-  const lines: string[] = [
-    `**Running in local mode** (no API key — using TF-IDF retrieval instead of embeddings, no LLM generation)\n`,
-    `**Your query:** "${query}"\n`,
-    `**Retrieved ${chunks.length} relevant chunks:**\n`,
-  ];
-
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    lines.push(
-      `---\n\n[Source ${i + 1}] **${chunk.metadata.title}** (${chunk.metadata.sourceFile}) — similarity: ${chunk.similarity.toFixed(3)}\n`,
-    );
-    // Show first ~300 chars of the chunk
-    const preview = chunk.text.length > 300 ? chunk.text.slice(0, 300) + '...' : chunk.text;
-    lines.push(preview + '\n');
-  }
-
-  lines.push(
-    `\n---\n\n*In full mode (with an API key), these chunks would be injected into Claude's system prompt, and the LLM would synthesize a natural-language answer with [Source N] citations.*`,
-  );
-
-  return lines.join('\n');
+function buildFallbackResponse(): string {
+  return `Running in local mode (no API key). Retrieved chunks are shown in the Retrieval Pipeline panel on the left. With an API key, Claude would synthesize a natural-language answer from these chunks with [Source N] citations.`;
 }
