@@ -2,7 +2,7 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useState, useEffect, useRef } from 'react';
-import type { ChatUIMessage, RetrievedSource } from '@/lib/types';
+import type { ChatUIMessage, RetrievedSource, ChunkScoreData } from '@/lib/types';
 
 function renderTextWithCitations(text: string) {
   const parts = text.split(/(\[Source \d+\])/g);
@@ -19,6 +19,81 @@ function renderTextWithCitations(text: string) {
     }
     return <span key={i}>{part}</span>;
   });
+}
+
+function SimilarityChart({
+  scores,
+  isNew,
+}: {
+  scores: ChunkScoreData[];
+  isNew: boolean;
+}) {
+  const [animatedWidths, setAnimatedWidths] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isNew) {
+      setAnimatedWidths(false);
+      const timer = setTimeout(() => setAnimatedWidths(true), 100);
+      return () => clearTimeout(timer);
+    }
+    setAnimatedWidths(true);
+  }, [scores, isNew]);
+
+  const maxSimilarity = Math.max(...scores.map((s) => Math.abs(s.similarity)), 0.01);
+
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
+          Similarity Landscape
+        </span>
+        <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+          {scores.length} chunks compared
+        </span>
+      </div>
+      <div className="space-y-1">
+        {scores.map((score, i) => {
+          const width = Math.max((Math.abs(score.similarity) / maxSimilarity) * 100, 2);
+          return (
+            <div key={i} className="flex items-center gap-1.5">
+              <div className="w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800" style={{ height: score.selected ? '14px' : '8px' }}>
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    score.selected
+                      ? 'bg-blue-500 dark:bg-blue-400'
+                      : 'bg-zinc-300 dark:bg-zinc-600'
+                  }`}
+                  style={{
+                    width: animatedWidths ? `${width}%` : '0%',
+                    transitionDuration: isNew ? `${600 + i * 40}ms` : '300ms',
+                    transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
+                    transitionDelay: isNew ? `${i * 30}ms` : '0ms',
+                  }}
+                />
+              </div>
+              <span className={`shrink-0 text-[9px] tabular-nums ${
+                score.selected
+                  ? 'font-semibold text-blue-600 dark:text-blue-400'
+                  : 'text-zinc-400 dark:text-zinc-500'
+              }`} style={{ width: '32px', textAlign: 'right' }}>
+                {(score.similarity * 100).toFixed(1)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex items-center gap-3 text-[9px] text-zinc-400 dark:text-zinc-500">
+        <div className="flex items-center gap-1">
+          <div className="h-2 w-4 rounded-full bg-blue-500 dark:bg-blue-400" />
+          <span>Selected (top 3)</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="h-1.5 w-4 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+          <span>Not selected</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SourceCard({
@@ -95,9 +170,11 @@ function SourceCard({
 
 function RetrievalPanel({
   sources,
+  scores,
   isNew,
 }: {
   sources: RetrievedSource[];
+  scores: ChunkScoreData[];
   isNew: boolean;
 }) {
   if (sources.length === 0) {
@@ -119,33 +196,77 @@ function RetrievalPanel({
   }
 
   return (
-    <div className="flex flex-col gap-2.5 p-3">
-      <div className="flex items-center gap-2 px-1">
-        <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-        <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-          Retrieved {sources.length} chunks
-        </span>
-      </div>
-      {sources.map((source, i) => (
-        <SourceCard
-          key={`${source.sourceFile}-${source.similarity}-${i}`}
-          source={source}
-          index={i}
-          delay={isNew ? i * 200 : 0}
-          injected={!isNew}
-        />
-      ))}
+    <div className="flex flex-col gap-3 p-3">
+      {/* Step 1: Similarity landscape */}
+      {scores.length > 0 && (
+        <div
+          style={{
+            animation: isNew ? 'fadeIn 400ms ease-out forwards' : 'none',
+            opacity: isNew ? 0 : 1,
+          }}
+        >
+          <div className="mb-1.5 flex items-center gap-1.5 px-1">
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-purple-100 text-[9px] font-bold text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
+              1
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Compare query against all chunks
+            </span>
+          </div>
+          <SimilarityChart scores={scores} isNew={isNew} />
+        </div>
+      )}
+
+      {/* Step 2: Retrieved sources */}
       <div
-        className="mt-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-center dark:border-zinc-700 dark:bg-zinc-800/50"
         style={{
-          animation: isNew ? 'fadeIn 500ms ease-out forwards' : 'none',
-          animationDelay: isNew ? `${sources.length * 200 + 800}ms` : '0ms',
+          animation: isNew ? 'fadeIn 400ms ease-out forwards' : 'none',
+          animationDelay: isNew ? '400ms' : '0ms',
           opacity: isNew ? 0 : 1,
         }}
       >
-        <p className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
-          Chunks injected into system prompt as context for the LLM
-        </p>
+        <div className="mb-1.5 flex items-center gap-1.5 px-1">
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-100 text-[9px] font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+            2
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Top {sources.length} chunks retrieved
+          </span>
+        </div>
+        <div className="flex flex-col gap-2">
+          {sources.map((source, i) => (
+            <SourceCard
+              key={`${source.sourceFile}-${source.similarity}-${i}`}
+              source={source}
+              index={i}
+              delay={isNew ? 500 + i * 200 : 0}
+              injected={!isNew}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Step 3: Injection note */}
+      <div
+        style={{
+          animation: isNew ? 'fadeIn 500ms ease-out forwards' : 'none',
+          animationDelay: isNew ? `${500 + sources.length * 200 + 600}ms` : '0ms',
+          opacity: isNew ? 0 : 1,
+        }}
+      >
+        <div className="mb-1.5 flex items-center gap-1.5 px-1">
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-100 text-[9px] font-bold text-green-700 dark:bg-green-900/50 dark:text-green-300">
+            3
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Augment &amp; Generate
+          </span>
+        </div>
+        <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800/50">
+          <p className="text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+            Retrieved chunks are injected into the system prompt as context. The LLM generates a response grounded in this context with [Source N] citations.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -155,13 +276,14 @@ export default function Chat() {
   const [input, setInput] = useState('');
   const { messages, sendMessage, status } = useChat<ChatUIMessage>();
   const [activeSources, setActiveSources] = useState<RetrievedSource[]>([]);
+  const [activeScores, setActiveScores] = useState<ChunkScoreData[]>([]);
   const [isNewRetrieval, setIsNewRetrieval] = useState(false);
   const prevMessageCountRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
-  // Track the latest sources from assistant messages
+  // Track the latest sources and scores from assistant messages
   useEffect(() => {
     const assistantMessages = messages.filter((m) => m.role === 'assistant');
     if (assistantMessages.length === 0) return;
@@ -170,10 +292,14 @@ export default function Chat() {
     const sources = latest.parts
       .filter((p): p is { type: 'data-sources'; data: RetrievedSource[] } => p.type === 'data-sources')
       .flatMap((p) => p.data);
+    const scores = latest.parts
+      .filter((p): p is { type: 'data-scores'; data: ChunkScoreData[] } => p.type === 'data-scores')
+      .flatMap((p) => p.data);
 
     if (sources.length > 0) {
       const isNew = messages.length !== prevMessageCountRef.current;
       setActiveSources(sources);
+      setActiveScores(scores);
       setIsNewRetrieval(isNew);
       prevMessageCountRef.current = messages.length;
     }
@@ -218,7 +344,7 @@ export default function Chat() {
               </span>
             </div>
           </div>
-          <RetrievalPanel sources={activeSources} isNew={isNewRetrieval} />
+          <RetrievalPanel sources={activeSources} scores={activeScores} isNew={isNewRetrieval} />
         </aside>
 
         {/* Right: Chat */}

@@ -175,3 +175,43 @@ export async function findRelevantChunks(
 
   return scored.slice(0, topK);
 }
+
+export interface ChunkScore {
+  title: string;
+  sourceFile: string;
+  similarity: number;
+  selected: boolean;
+}
+
+export async function getAllChunkScores(
+  query: string,
+  topK: number = 3,
+): Promise<ChunkScore[]> {
+  let queryEmbedding: number[];
+
+  if (usingLocalEmbeddings) {
+    queryEmbedding = textToTfIdfVector(query, vocabulary, idf);
+  } else {
+    const result = await embed({
+      model: 'openai/text-embedding-3-small',
+      value: query,
+    });
+    queryEmbedding = result.embedding;
+  }
+
+  const scored = knowledgeBase.map((chunk) => ({
+    title: chunk.metadata.title,
+    sourceFile: chunk.metadata.sourceFile,
+    similarity: cosineSimilarity(queryEmbedding, chunk.embedding),
+    selected: false,
+  }));
+
+  scored.sort((a, b) => b.similarity - a.similarity);
+
+  // Mark the top K as selected
+  for (let i = 0; i < Math.min(topK, scored.length); i++) {
+    scored[i].selected = true;
+  }
+
+  return scored;
+}

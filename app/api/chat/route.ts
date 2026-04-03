@@ -7,6 +7,7 @@ import {
 import {
   initializeKnowledgeBase,
   findRelevantChunks,
+  getAllChunkScores,
   isUsingLocalEmbeddings,
 } from '@/lib/knowledge-base';
 import type { ChatUIMessage, RetrievedSource } from '@/lib/types';
@@ -22,8 +23,11 @@ export async function POST(req: Request) {
     lastUserMessage?.parts?.find((p): p is { type: 'text'; text: string } => p.type === 'text')
       ?.text ?? '';
 
-  // RAG: retrieve relevant chunks
-  const relevantChunks = await findRelevantChunks(query, 3);
+  // RAG: retrieve relevant chunks and all scores
+  const [relevantChunks, allScores] = await Promise.all([
+    findRelevantChunks(query, 3),
+    getAllChunkScores(query, 3),
+  ]);
 
   // Prepare sources data for the client
   const sources: RetrievedSource[] = relevantChunks.map((chunk) => ({
@@ -46,6 +50,7 @@ export async function POST(req: Request) {
     const stream = createUIMessageStream<ChatUIMessage>({
       execute: ({ writer }) => {
         writer.write({ type: 'data-sources', data: sources });
+        writer.write({ type: 'data-scores', data: allScores });
         const partId = 'fallback-text';
         writer.write({ type: 'text-start', id: partId });
         writer.write({ type: 'text-delta', id: partId, delta: fallbackText });
@@ -57,8 +62,8 @@ export async function POST(req: Request) {
 
   const stream = createUIMessageStream<ChatUIMessage>({
     execute: async ({ writer }) => {
-      // Send retrieved sources as a data part first
       writer.write({ type: 'data-sources', data: sources });
+      writer.write({ type: 'data-scores', data: allScores });
 
       const result = streamText({
         model: 'anthropic/claude-sonnet-4.6',
