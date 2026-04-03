@@ -616,6 +616,14 @@ export default function Chat() {
                 How it works
               </button>
               <a
+                href="https://jessepeplinski.github.io/blog/how-does-rag-work"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                Read about this
+              </a>
+              <a
                 href="https://github.com/JessePeplinski/how-does-rag-work"
                 target="_blank"
                 rel="noopener noreferrer"
