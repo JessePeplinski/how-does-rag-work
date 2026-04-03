@@ -537,9 +537,9 @@ export default function Chat() {
         </header>
 
         {/* Main content: side panel + chat */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* Left: Retrieval Pipeline Panel */}
-          <aside className="hidden w-80 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50/50 dark:border-zinc-800 dark:bg-zinc-950/50 lg:block">
+          <aside className="hidden w-1/2 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50/50 dark:border-zinc-800 dark:bg-zinc-950/50 lg:block">
             <div className="sticky top-0 z-10 border-b border-zinc-200 bg-zinc-50/80 px-4 py-2.5 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
               <div className="flex items-center gap-2">
                 <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -554,12 +554,12 @@ export default function Chat() {
           </aside>
 
           {/* Right: Chat */}
-          <div className="flex flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-6">
-              <div className="mx-auto max-w-2xl space-y-4">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-6">
+              <div className={`mx-auto w-full max-w-2xl space-y-4 ${messages.length === 0 ? 'flex flex-1 flex-col items-center justify-center' : ''}`}>
                 {messages.length === 0 && (
-                  <div className="py-12 text-center">
+                  <div className="text-center">
                     <p className="text-lg font-medium text-zinc-400 dark:text-zinc-500">
                       Try asking a question like:
                     </p>
