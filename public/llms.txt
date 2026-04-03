@@ -1,0 +1,39 @@
+# How does RAG work?
+
+> An interactive demo that visualizes every step of the Retrieval-Augmented Generation (RAG) pipeline.
+
+## What this app demonstrates
+
+This application is an educational tool that shows how RAG works step by step:
+
+1. **Document Indexing**: Markdown documents are split into chunks by paragraph, then each chunk is converted into a vector embedding using OpenAI's text-embedding-3-small model (or TF-IDF locally).
+
+2. **Query Analysis**: When a user asks a question, each word is analyzed for importance using IDF weights. High-importance terms (domain-specific words) are weighted more heavily than common stop words.
+
+3. **Similarity Search**: The query is embedded and compared against all document chunks using cosine similarity. A similarity landscape chart visualizes every chunk's score.
+
+4. **Retrieval**: The top 3 most similar chunks are selected and displayed with their similarity scores and source attribution.
+
+5. **Augmented Generation**: Retrieved chunks are injected into the LLM's system prompt as context. The model (Anthropic Claude) generates a response grounded in this context with [Source N] citations.
+
+## Knowledge base topics
+
+The demo includes pre-loaded documents covering:
+- Retrieval-Augmented Generation (RAG) — architecture, indexing, query phases, challenges
+- Vector Databases — embeddings, similarity metrics, HNSW, pgvector, Pinecone, Chroma
+- Prompt Engineering — zero-shot, few-shot, chain-of-thought, system prompts, structured output
+- AI Agents — ReAct pattern, tool use, multi-agent systems, planning strategies
+
+## Technical stack
+
+- Next.js 16 (App Router, TypeScript, Tailwind CSS)
+- Vercel AI SDK with custom data stream parts
+- Anthropic Claude via Vercel AI Gateway
+- OpenAI text-embedding-3-small for embeddings
+- In-memory vector store with cosine similarity
+- TF-IDF fallback for zero-dependency local mode
+
+## Built by
+
+Jesse Peplinski — https://jessepeplinski.github.io
+Source code: https://github.com/JessePeplinski/how-does-rag-work
