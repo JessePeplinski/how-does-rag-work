@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-RAG (Retrieval-Augmented Generation) demo app. Interactive visualization of the full RAG pipeline for job application portfolio.
+"How does RAG work?" — an interactive visualization of the full RAG pipeline for job application portfolio.
 
 ## Commands
 
@@ -33,4 +33,5 @@ RAG (Retrieval-Augmented Generation) demo app. Interactive visualization of the 
 ## Deployment
 
 - Vercel (auto-deploys from `main` via Git integration)
-- Production URL: https://rag-example-ten.vercel.app
+- GitHub: https://github.com/JessePeplinski/how-does-rag-work
+- Production URL: https://how-does-rag-work.vercel.app (pending rename)

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RAG Demo",
+  title: "How does RAG work?",
   description:
     "A Retrieval-Augmented Generation demo — chat with an AI grounded in a knowledge base about AI/ML topics.",
 };

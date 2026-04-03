@@ -1,4 +1,4 @@
-# RAG Demo
+# How does RAG work?
 
 An interactive Retrieval-Augmented Generation (RAG) demo built with Next.js, the Vercel AI SDK, and Anthropic Claude. Designed to visualize how RAG works, not just what it produces.
 

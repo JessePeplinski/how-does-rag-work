@@ -596,7 +596,7 @@ export default function Chat() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-                RAG Demo
+                How does RAG work?
               </h1>
               <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
                 Prototype
@@ -616,7 +616,7 @@ export default function Chat() {
                 How it works
               </button>
               <a
-                href="https://github.com/JessePeplinski/rag-example"
+                href="https://github.com/JessePeplinski/how-does-rag-work"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
