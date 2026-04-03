@@ -349,6 +349,72 @@ function SourceCard({
   );
 }
 
+function MobileRetrievalSummary({
+  sources,
+  scores,
+}: {
+  sources: RetrievedSource[];
+  scores: ChunkScoreData[];
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 lg:hidden">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex w-full items-center justify-between px-4 py-2.5"
+      >
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-green-500" />
+          <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+            Retrieved {sources.length} chunks from {new Set(sources.map((s) => s.sourceFile)).size} docs
+          </span>
+          <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+            (best: {(Math.max(...sources.map((s) => s.similarity)) * 100).toFixed(1)}% match)
+          </span>
+        </div>
+        <svg
+          className={`h-4 w-4 text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {isOpen && (
+        <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          {/* Mini similarity bars */}
+          <div className="mb-2 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+            {scores.length} chunks compared
+          </div>
+          <div className="flex gap-0.5">
+            {scores.map((score, i) => (
+              <div
+                key={i}
+                className={`rounded-sm ${score.selected ? 'bg-blue-500 dark:bg-blue-400' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+                style={{ height: `${Math.max(Math.abs(score.similarity) * 100, 4)}px`, width: `${100 / scores.length}%` }}
+                title={`${score.title}: ${(score.similarity * 100).toFixed(1)}%`}
+              />
+            ))}
+          </div>
+          {/* Source list */}
+          <div className="mt-2 space-y-1">
+            {sources.map((source, i) => (
+              <div key={i} className="flex items-center justify-between text-[11px]">
+                <span className="text-zinc-600 dark:text-zinc-300">
+                  <span className="font-semibold text-blue-600 dark:text-blue-400">[{i + 1}]</span>{' '}
+                  {source.title}
+                </span>
+                <span className="text-zinc-400">{(source.similarity * 100).toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RetrievalPanel({
   sources,
   scores,
@@ -479,8 +545,15 @@ export default function Chat() {
   const [activeQueryTerms, setActiveQueryTerms] = useState<QueryTermData[]>([]);
   const [hoveredTerm, setHoveredTerm] = useState<string | null>(null);
   const [isNewRetrieval, setIsNewRetrieval] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [stats, setStats] = useState<{ docCount: number; chunkCount: number } | null>(null);
   const prevMessageCountRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Fetch knowledge base stats on mount
+  useEffect(() => {
+    fetch('/api/stats').then((r) => r.json()).then(setStats).catch(() => {});
+  }, []);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -520,13 +593,37 @@ export default function Chat() {
       <div className="flex h-full flex-col">
         {/* Header */}
         <header className="border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-              RAG Demo
-            </h1>
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-              Prototype
-            </span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+                RAG Demo
+              </h1>
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                Prototype
+              </span>
+              {stats && (
+                <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                  {stats.docCount} docs, {stats.chunkCount} chunks indexed
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowHowItWorks(true)}
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                How it works
+              </button>
+              <a
+                href="https://github.com/JessePeplinski/rag-example"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                GitHub
+              </a>
+            </div>
           </div>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             A rapid prototype demonstrating Retrieval-Augmented Generation. Documents in{' '}
@@ -535,6 +632,57 @@ export default function Chat() {
             Runs fully locally without an API key (TF-IDF fallback).
           </p>
         </header>
+
+        {/* How it works modal */}
+        {showHowItWorks && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowHowItWorks(false)}>
+            <div className="mx-4 max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">How RAG Works</h2>
+                <button type="button" onClick={() => setShowHowItWorks(false)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">1</span>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Index Documents</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Markdown files are split into chunks by paragraph, then each chunk is converted into a vector embedding.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-bold text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">2</span>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Retrieve</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Your question is embedded and compared against all chunks using cosine similarity. The top 3 most similar chunks are selected.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">3</span>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Augment</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Retrieved chunks are injected into the LLM&apos;s system prompt as context, with source labels for citation tracking.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700 dark:bg-green-900/50 dark:text-green-300">4</span>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Generate</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">The LLM generates a response grounded in the retrieved context, citing sources with [Source N] notation.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/50">
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  <strong>Local mode:</strong> Without an API key, embeddings use TF-IDF vectors and the generation step is skipped. The full retrieval pipeline still runs end-to-end.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Main content: side panel + chat */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -555,6 +703,11 @@ export default function Chat() {
 
           {/* Right: Chat */}
           <div className="flex min-h-0 flex-1 flex-col">
+            {/* Mobile: condensed retrieval summary */}
+            {activeSources.length > 0 && (
+              <MobileRetrievalSummary sources={activeSources} scores={activeScores} />
+            )}
+
             {/* Messages */}
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-6">
               <div className={`mx-auto w-full max-w-2xl space-y-4 ${messages.length === 0 ? 'flex flex-1 flex-col items-center justify-center' : ''}`}>

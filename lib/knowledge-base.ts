@@ -85,11 +85,18 @@ export function isUsingLocalEmbeddings(): boolean {
   return usingLocalEmbeddings;
 }
 
+let docCount = 0;
+
+export function getKnowledgeBaseStats(): { docCount: number; chunkCount: number } {
+  return { docCount, chunkCount: knowledgeBase.length };
+}
+
 export async function initializeKnowledgeBase(): Promise<void> {
   if (initialized) return;
 
   const docsDir = path.join(process.cwd(), 'docs');
   const files = fs.readdirSync(docsDir).filter((f) => f.endsWith('.md'));
+  docCount = files.length;
 
   const allChunks: { text: string; metadata: { sourceFile: string; title: string } }[] = [];
 
